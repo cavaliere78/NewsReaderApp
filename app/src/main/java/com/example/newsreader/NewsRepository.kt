@@ -35,18 +35,36 @@ class NewsRepository(context: Context) {
 
     fun getSavedFeeds(): Map<String, String> {
         val saved = prefs.getStringSet("custom_feeds", null)
+        
+        // Se è la prima installazione, salva direttamente tutte le predefinite
         if (saved == null) {
             saveFeeds(defaultFeeds)
             return defaultFeeds
         }
-        val map = LinkedHashMap<String, String>()
+
+        val savedMap = LinkedHashMap<String, String>()
         for (item in saved) {
             val parts = item.split("|||")
             if (parts.size == 2) {
-                map[parts[0]] = parts[1]
+                savedMap[parts[0]] = parts[1]
             }
         }
-        return map
+
+        // CONTROLLO AUTOMATICO: Se nel codice abbiamo aggiunto nuove fonti che non sono ancora nei salvataggi, le integriamo
+        var hasChanges = false
+        for ((name, url) in defaultFeeds) {
+            if (!savedMap.containsKey(name) && !prefs.getBoolean("removed_$name", false)) {
+                savedMap[name] = url
+                hasChanges = true
+            }
+        }
+
+        // Se abbiamo trovato nuove fonti nel codice, aggiorniamo la memoria locale
+        if (hasChanges) {
+            saveFeeds(savedMap)
+        }
+
+        return savedMap
     }
 
     fun saveFeeds(feeds: Map<String, String>) {
