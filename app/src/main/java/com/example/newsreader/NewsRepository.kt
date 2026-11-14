@@ -11,7 +11,6 @@ import java.util.*
 class NewsRepository(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
 
-    // Fonti predefinite con URL verificati e aggiornati
     val defaultFeeds = linkedMapOf(
         "ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
         "Corriere della Sera" to "https://xml.corriereobjects.it/rss/primapagina.xml",
@@ -83,7 +82,6 @@ class NewsRepository(context: Context) {
 
         for ((source, feedUrl) in currentFeeds) {
             try {
-                // Esecuzione avanzata con ignoranza del Content-Type per evitare rifiuti sui feed
                 val response = Jsoup.connect(feedUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
@@ -95,7 +93,6 @@ class NewsRepository(context: Context) {
 
                 val bodyText = response.body()
 
-                // Se il server risponde con una pagina HTML (es. blocco Cloudflare) scartiamo la fonte e logghiamo l'errore
                 if (bodyText.trim().startsWith("<!DOCTYPE html") || bodyText.contains("<html")) {
                     Log.e("NewsRepository", "Fonte $source bloccata o protetta da WAF/Anti-Bot (restituito HTML anziché XML)")
                     continue
@@ -220,5 +217,36 @@ class NewsRepository(context: Context) {
                 sourceUrl = preview.articleUrl
             )
         }
+    }
+
+    fun exportFeedsToJson(): String {
+        val json = org.json.JSONObject()
+        val currentFeeds = getSavedFeeds()
+        for ((name, url) in currentFeeds) {
+            json.put(name, url)
+        }
+        return json.toString(2)
+    }
+
+    fun importFeedsFromJson(jsonString: String): Map<String, String> {
+        val json = org.json.JSONObject(jsonString)
+        val importedMap = LinkedHashMap<String, String>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val name = keys.next().trim()
+            val url = json.optString(name).trim()
+            if (name.isNotEmpty() && url.isNotEmpty()) {
+                importedMap[name] = url
+            }
+        }
+        if (importedMap.isNotEmpty()) {
+            val editor = prefs.edit()
+            for (name in importedMap.keys) {
+                editor.remove("deleted_$name")
+            }
+            editor.apply()
+            saveFeeds(importedMap)
+        }
+        return getSavedFeeds()
     }
 }
