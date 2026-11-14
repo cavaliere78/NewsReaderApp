@@ -1,37 +1,52 @@
 package com.example.newsreader
 
 import android.content.Context
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import android.content.SharedPreferences
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
+
+data class NewsPreview(
+    val id: String,
+    val title: String,
+    val publishedDate: String,
+    val rawDate: Date,
+    val imageUrl: String?,
+    val articleUrl: String,
+    val sourceName: String
+)
+
+data class FullArticle(
+    val title: String,
+    val publishedDate: String,
+    val mainImageUrl: String?,
+    val blocks: List<ArticleBlock>,
+    val sourceUrl: String
+)
+
+sealed class ArticleBlock {
+    data class TextParagraph(val text: String) : ArticleBlock()
+    data class ImageBlock(val imageUrl: String, val caption: String?) : ArticleBlock()
+}
 
 class NewsRepository(context: Context) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
 
-    private val prefs = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
-
-    // Fonti predefinite iniziali (se l'utente non ne ha ancora aggiunte/rimosse)
-	private val defaultFeeds = linkedMapOf(
-			"ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
-			"Il Post" to "https://www.ilpost.it/feed/",
-			"Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
-			"Il Roma" to "https://www.ilroma.net/sezioni/268/rss",
-			"Corriere della Sera" to "https://xml2.corriereobjects.it/rss/homepage.xml",
-			"la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
-			"Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/primapagina.xml",
-			"Sky TG24" to "https://feed.sky.it/notizie/rss",
-			"La Stampa" to "https://www.lastampa.it/rss/homepage.xml",
-			"AGI" to "https://www.agi.it/rss/",
-			"Adnkronos" to "https://www.adnkronos.com/rss/",
-			"Wired Italia" to "https://www.wired.it/feed/",
-			"HDblog" to "https://hdblog.it/rss",
-			"Everyeye Tech" to "https://www.everyeye.it/feed/rss/tech",
-			"Gazzetta dello Sport" to "https://www.gazzetta.it/rss/home.xml",
-			"Corriere dello Sport" to "https://www.corrieredellosport.it/rss/"
-		)
+    // Fonti predefinite con URL RSS stabili e verificati per l'Italia
+    val defaultFeeds = linkedMapOf(
+        "ANSA" to "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
+        "Corriere della Sera" to "https://xml.corriereobjects.it/rss/primapagina.xml",
+        "la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
+        "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/italia.xml",
+        "Gazzetta dello Sport" to "https://www.gazzetta.it/rss/home.xml",
+        "Corriere dello Sport" to "https://www.corrieredellosport.it/rss/",
+        "Il Mattino" to "https://www.ilmattino.it/rss/primapagina.xml",
+        "Il Post" to "https://www.ilpost.it/feed/",
+        "Sky TG24" to "https://tg24.sky.it/rss/ ultimora.xml",
+        "Adnkronos" to "https://www.adnkronos.com/rss.xml",
+        "Il Roma" to "https://www.ilroma.net/sezioni/268/rss"
+    )
 
     fun getSavedFeeds(): Map<String, String> {
         val saved = prefs.getStringSet("custom_feeds", null)
@@ -46,18 +61,15 @@ class NewsRepository(context: Context) {
             }
         }
 
-        // FORATURA INTELLIGENTE: Controlla se nel codice sono state aggiunte nuove testate 
-        // e le inserisce automaticamente, rispettando però quelle che l'utente ha eventualmente eliminato o modificato.
+        // Sincronizzazione automatica delle nuove fonti di default senza sovrascrivere le preferenze utente
         var updated = false
         for ((name, url) in defaultFeeds) {
-            // Se la testata di default non è nei salvataggi e l'utente non l'ha esplicitamente cancellata
             if (!savedMap.containsKey(name) && !prefs.getBoolean("deleted_$name", false)) {
                 savedMap[name] = url
                 updated = true
             }
         }
 
-        // Se è la primissima volta o abbiamo aggiunto nuove fonti, salviamo subito la mappa aggiornata
         if (saved == null || updated) {
             saveFeeds(savedMap)
         }
@@ -66,33 +78,59 @@ class NewsRepository(context: Context) {
     }
 
     fun saveFeeds(feeds: Map<String, String>) {
-        val set = feeds.map { "${it.key}|||${it.value}" }.toSet()
+        val set = mutableSetOf<String>()
+        for ((name, url) in feeds) {
+            set.add("$name|||$url")
+        }
         prefs.edit().putStringSet("custom_feeds", set).apply()
     }
 
-    suspend fun fetchNewsList(): List<NewsPreview> = withContext(Dispatchers.IO) {
+    fun resetDefaultFeeds(): Map<String, String> {
+        val editor = prefs.edit()
+        for (name in defaultFeeds.keys) {
+            editor.remove("deleted_$name")
+        }
+        editor.remove("custom_feeds")
+        editor.apply()
+        saveFeeds(defaultFeeds)
+        return defaultFeeds
+    }
+
+    suspend fun fetchNewsList(): List<NewsPreview> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val allNews = mutableListOf<NewsPreview>()
         val currentFeeds = getSavedFeeds()
 
         for ((source, feedUrl) in currentFeeds) {
             try {
+                // Connessione avanzata con header browser per superare i blocchi anti-bot
                 val doc = Jsoup.connect(feedUrl)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(5000)
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                    .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+                    .header("Accept-Language", "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7")
+                    .timeout(8000)
+                    .followRedirects(true)
                     .parser(Parser.xmlParser())
                     .get()
 
-                val items = doc.select("item")
+                // Supporto combinato per RSS (<item>) e Atom (<entry>)
+                val items = doc.select("item, entry")
                 for (item in items) {
                     val title = item.selectFirst("title")?.text()?.trim() ?: continue
-                    val link = item.selectFirst("link")?.text()?.trim() ?: continue
-                    val pubDateRaw = item.selectFirst("pubDate")?.text()?.trim() ?: ""
+                    
+                    // Gestione intelligente del link (supporta tag <link> testuale e attributi href Atom)
+                    val linkElement = item.selectFirst("link")
+                    val link = linkElement?.text()?.takeIf { it.isNotBlank() && it.startsWith("http") }
+                        ?: linkElement?.attr("abs:href")
+                        ?: item.selectFirst("link")?.attr("href")
+                        ?: continue
+
+                    val pubDateRaw = item.selectFirst("pubDate, published, updated")?.text()?.trim() ?: ""
 
                     var imgUrl = item.selectFirst("enclosure")?.attr("url")
                         ?: item.selectFirst("media|content")?.attr("url")
 
                     if (imgUrl.isNullOrEmpty()) {
-                        val descHtml = item.selectFirst("description")?.text() ?: ""
+                        val descHtml = item.selectFirst("description, content")?.text() ?: ""
                         val descDoc = Jsoup.parse(descHtml)
                         imgUrl = descDoc.selectFirst("img")?.attr("abs:src")
                     }
@@ -112,106 +150,86 @@ class NewsRepository(context: Context) {
                     )
                 }
             } catch (e: Exception) {
-                // Se una testata fallisce (es. blocco anti-bot o URL errato), stampa l'errore ma CONTINUA con le altre
-                println("Errore caricamento feed $source: ${e.message}")
+                println("Impossibile caricare il feed da $source ($feedUrl): ${e.message}")
             }
         }
 
-        allNews.sortedByDescending { it.rawDate }
+        allNews.sortedByDescending { rawDate -> rawDate.rawDate }
     }
 
-    suspend fun fetchFullArticle(preview: NewsPreview): FullArticle = withContext(Dispatchers.IO) {
-        val blocks = mutableListOf<ArticleBlock>()
-        var heroImage = preview.imageUrl
-
-        try {
-            val doc = Jsoup.connect(preview.articleUrl)
-                .userAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
-                .timeout(10000)
-                .get()
-
-            if (heroImage.isNullOrEmpty()) {
-                heroImage = doc.selectFirst("meta[property=og:image]")?.attr("content")
-            }
-
-            // Rimuove elementi indesiderati
-            doc.select("script, style, nav, header, footer, aside, .ads, .related, .cookie, .author-box").remove()
-
-            // Selettori mirati specifici per testate difficili (Repubblica, Sole 24 Ore, Corriere, ecc.)
-            val articleContainer = doc.selectFirst("div[itemprop=articleBody]")
-                ?: doc.selectFirst("article")
-                ?: doc.selectFirst(".article-body")
-                ?: doc.selectFirst(".entry-content")
-                ?: doc.selectFirst("main")
-                ?: doc.body()
-
-            val elements = articleContainer.select("p, img, h2, h3")
-            val seenImages = mutableSetOf<String>()
-            if (heroImage != null) seenImages.add(heroImage)
-
-            for (el in elements) {
-                when (el.tagName()) {
-                    "p", "h2", "h3" -> {
-                        val text = el.text().trim()
-                        // Filtra frasi troppo corte o avvisi di cookie/newsletter
-                        if (text.length > 25 && !text.contains("Iscriviti alla newsletter") && !text.contains("Riproduzione riservata")) {
-                            blocks.add(ArticleBlock.TextParagraph(text))
-                        }
-                    }
-                    "img" -> {
-                        val src = el.attr("abs:src").ifEmpty { el.attr("abs:data-src") }
-                        if (src.isNotBlank() && src.startsWith("http") && !seenImages.contains(src)) {
-                            if (!src.contains("icon") && !src.contains("logo") && !src.contains("pixel") && !src.contains("avatar")) {
-                                seenImages.add(src)
-                                blocks.add(ArticleBlock.ImageBlock(src, el.attr("alt")))
-                            }
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            blocks.add(ArticleBlock.TextParagraph("Impossibile estrarre il testo completo per questa pagina. Puoi leggere l'articolo originale dal link in fondo."))
-        }
-
-        FullArticle(
-            title = preview.title,
-            publishedDate = preview.publishedDate,
-            mainImageUrl = heroImage,
-            blocks = blocks,
-            sourceUrl = preview.articleUrl
-        )
-    }
-
-    private fun parseDate(rawDate: String): Pair<String, Date> {
-        val formats = listOf(
+    private fun parseDate(dateStr: String): Pair<String, Date> {
+        val formats = arrayOf(
             SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH),
             SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.ENGLISH),
+            SimpleDateFormat("dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH),
             SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
         )
 
         for (format in formats) {
             try {
                 format.isLenient = true
-                val date = format.parse(rawDate)
+                val date = format.parse(dateStr)
                 if (date != null) {
-                    val outputFormat = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.ITALIAN)
+                    val outputFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.ITALIAN)
                     return Pair(outputFormat.format(date), date)
                 }
             } catch (_: Exception) {}
         }
-        return Pair(rawDate, Date(0))
-    }
-	fun resetDefaultFeeds(): Map<String, String> {
-        // Pulisce eventuali flag di eliminazione salvati dall'utente
-        val editor = prefs.edit()
-        for (name in defaultFeeds.keys) {
-            editor.remove("deleted_$name")
-        }
-        editor.remove("custom_feeds")
-        editor.apply()
 
-        // Salva e restituisce i feed predefiniti puliti
-        saveFeeds(defaultFeeds)
-        return defaultFeeds
+        return Pair(dateStr, Date(0))
+    }
+
+    suspend fun fetchFullArticle(preview: NewsPreview): FullArticle = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val doc = Jsoup.connect(preview.articleUrl)
+                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+                .timeout(10000)
+                .get()
+
+            doc.select("script, style, nav, footer, header, aside, .ads, .cookie-banner").remove()
+
+            val title = doc.selectFirst("h1")?.text() ?: preview.title
+            val mainImage = doc.selectFirst("article img, .post-content img, .entry-content img, img")?.attr("abs:src")
+
+            val blocks = mutableListOf<ArticleBlock>()
+            val paragraphs = doc.select("article p, .post-content p, .entry-content p, div.content p")
+
+            if (paragraphs.isNotEmpty()) {
+                for (p in paragraphs) {
+                    val text = p.text().trim()
+                    if (text.length > 20) {
+                        blocks.add(ArticleBlock.TextParagraph(text))
+                    }
+                }
+            } else {
+                doc.select("p").forEach { p ->
+                    val text = p.text().trim()
+                    if (text.length > 30) {
+                        blocks.add(ArticleBlock.TextParagraph(text))
+                    }
+                }
+            }
+
+            if (blocks.isEmpty()) {
+                blocks.add(ArticleBlock.TextParagraph("Impossibile estrarre il testo completo formattato per questo articolo."))
+            }
+
+            FullArticle(
+                title = title,
+                publishedDate = preview.publishedDate,
+                mainImageUrl = mainImage?.takeIf { it.isNotBlank() } ?: preview.imageUrl,
+                blocks = blocks,
+                sourceUrl = preview.articleUrl
+            )
+        } catch (e: Exception) {
+            FullArticle(
+                title = preview.title,
+                publishedDate = preview.publishedDate,
+                mainImageUrl = preview.imageUrl,
+                blocks = listOf(ArticleBlock.TextParagraph("Errore di caricamento dell'articolo completo: ${e.message}")),
+                sourceUrl = preview.articleUrl
+            )
+        }
     }
 }
