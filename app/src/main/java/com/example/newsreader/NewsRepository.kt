@@ -7,33 +7,9 @@ import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
 import java.util.*
 
-data class NewsPreview(
-    val id: String,
-    val title: String,
-    val publishedDate: String,
-    val rawDate: Date,
-    val imageUrl: String?,
-    val articleUrl: String,
-    val sourceName: String
-)
-
-data class FullArticle(
-    val title: String,
-    val publishedDate: String,
-    val mainImageUrl: String?,
-    val blocks: List<ArticleBlock>,
-    val sourceUrl: String
-)
-
-sealed class ArticleBlock {
-    data class TextParagraph(val text: String) : ArticleBlock()
-    data class ImageBlock(val imageUrl: String, val caption: String?) : ArticleBlock()
-}
-
 class NewsRepository(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
 
-    // Fonti predefinite con URL RSS stabili e verificati per l'Italia
     val defaultFeeds = linkedMapOf(
         "ANSA" to "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
         "Corriere della Sera" to "https://xml.corriereobjects.it/rss/primapagina.xml",
@@ -43,7 +19,7 @@ class NewsRepository(context: Context) {
         "Corriere dello Sport" to "https://www.corrieredellosport.it/rss/",
         "Il Mattino" to "https://www.ilmattino.it/rss/primapagina.xml",
         "Il Post" to "https://www.ilpost.it/feed/",
-        "Sky TG24" to "https://tg24.sky.it/rss/ ultimora.xml",
+        "Sky TG24" to "https://tg24.sky.it/rss/ultimora.xml",
         "Adnkronos" to "https://www.adnkronos.com/rss.xml",
         "Il Roma" to "https://www.ilroma.net/sezioni/268/rss"
     )
@@ -61,7 +37,6 @@ class NewsRepository(context: Context) {
             }
         }
 
-        // Sincronizzazione automatica delle nuove fonti di default senza sovrascrivere le preferenze utente
         var updated = false
         for ((name, url) in defaultFeeds) {
             if (!savedMap.containsKey(name) && !prefs.getBoolean("deleted_$name", false)) {
@@ -102,7 +77,6 @@ class NewsRepository(context: Context) {
 
         for ((source, feedUrl) in currentFeeds) {
             try {
-                // Connessione avanzata con header browser per superare i blocchi anti-bot
                 val doc = Jsoup.connect(feedUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
@@ -112,12 +86,10 @@ class NewsRepository(context: Context) {
                     .parser(Parser.xmlParser())
                     .get()
 
-                // Supporto combinato per RSS (<item>) e Atom (<entry>)
                 val items = doc.select("item, entry")
                 for (item in items) {
                     val title = item.selectFirst("title")?.text()?.trim() ?: continue
                     
-                    // Gestione intelligente del link (supporta tag <link> testuale e attributi href Atom)
                     val linkElement = item.selectFirst("link")
                     val link = linkElement?.text()?.takeIf { it.isNotBlank() && it.startsWith("http") }
                         ?: linkElement?.attr("abs:href")
@@ -150,7 +122,7 @@ class NewsRepository(context: Context) {
                     )
                 }
             } catch (e: Exception) {
-                println("Impossibile caricare il feed da $source ($feedUrl): ${e.message}")
+                println("Errore feed $source: ${e.message}")
             }
         }
 

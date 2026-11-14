@@ -12,11 +12,6 @@ data class NewsPreview(
     val sourceName: String
 )
 
-sealed class ArticleBlock {
-    data class TextParagraph(val text: String) : ArticleBlock()
-    data class ImageBlock(val imageUrl: String, val caption: String? = null) : ArticleBlock()
-}
-
 data class FullArticle(
     val title: String,
     val publishedDate: String,
@@ -24,3 +19,8 @@ data class FullArticle(
     val blocks: List<ArticleBlock>,
     val sourceUrl: String
 )
+
+sealed class ArticleBlock {
+    data class TextParagraph(val text: String) : ArticleBlock()
+    data class ImageBlock(val imageUrl: String, val caption: String?) : ArticleBlock()
+}
