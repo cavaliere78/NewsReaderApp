@@ -14,15 +14,24 @@ class NewsRepository(context: Context) {
     private val prefs = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
 
     // Fonti predefinite iniziali (se l'utente non ne ha ancora aggiunte/rimosse)
-    private val defaultFeeds = mapOf(
-        "ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
-        "Il Post" to "https://www.ilpost.it/feed/",
-        "Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
-        "Il Roma" to "https://www.ilroma.net/sezioni/268/rss",
-        "Corriere della Sera" to "https://xml2.corriereobjects.it/rss/homepage.xml",
-        "la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
-        "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/primapagina.xml"
-    )
+	private val defaultFeeds = linkedMapOf(
+			"ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
+			"Il Post" to "https://www.ilpost.it/feed/",
+			"Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
+			"Il Roma" to "https://www.ilroma.net/sezioni/268/rss",
+			"Corriere della Sera" to "https://xml2.corriereobjects.it/rss/homepage.xml",
+			"la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
+			"Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/primapagina.xml",
+			"Sky TG24" to "https://feed.sky.it/notizie/rss",
+			"La Stampa" to "https://www.lastampa.it/rss/homepage.xml",
+			"AGI" to "https://www.agi.it/rss/",
+			"Adnkronos" to "https://www.adnkronos.com/rss/",
+			"Wired Italia" to "https://www.wired.it/feed/",
+			"HDblog" to "https://hdblog.it/rss",
+			"Everyeye Tech" to "https://www.everyeye.it/feed/rss/tech",
+			"Gazzetta dello Sport" to "https://www.gazzetta.it/rss/home.xml",
+			"Corriere dello Sport" to "https://www.corrieredellosport.it/rss/"
+		)
 
     fun getSavedFeeds(): Map<String, String> {
         val saved = prefs.getStringSet("custom_feeds", null)
