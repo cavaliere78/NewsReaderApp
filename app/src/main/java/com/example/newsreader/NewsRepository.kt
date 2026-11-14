@@ -11,7 +11,12 @@ class NewsRepository {
 
     private val rssFeeds = listOf(
         "ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
-        "Il Post" to "https://www.ilpost.it/feed/"
+        "Il Post" to "https://www.ilpost.it/feed/",
+        "Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
+        "Il Roma" to "https://www.ilroma.net/sezioni/268/rss",
+        "Corriere della Sera" to "https://xml2.corriereobjects.it/rss/homepage.xml",
+        "la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
+        "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/primapagina.xml"
     )
 
     suspend fun fetchNewsList(): List<NewsPreview> = withContext(Dispatchers.IO) {
