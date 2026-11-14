@@ -1,9 +1,12 @@
 package com.example.newsreader
 
+import java.util.Date
+
 data class NewsPreview(
     val id: String,
     val title: String,
     val publishedDate: String,
+    val rawDate: Date,
     val imageUrl: String?,
     val articleUrl: String,
     val sourceName: String

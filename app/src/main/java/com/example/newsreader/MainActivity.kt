@@ -6,9 +6,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +26,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,10 +62,33 @@ fun NewsFeedScreen(
 ) {
     var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    var selectedSource by remember { mutableStateOf("Tutte") }
+    
+    val coroutineScope = rememberCoroutineScope()
+
+    val loadNews: (Boolean) -> Unit = { refreshing ->
+        if (refreshing) isRefreshing = true else isLoading = true
+        coroutineScope.launch {
+            newsList = repository.fetchNewsList()
+            isLoading = false
+            isRefreshing = false
+        }
+    }
 
     LaunchedEffect(Unit) {
-        newsList = repository.fetchNewsList()
-        isLoading = false
+        loadNews(false)
+    }
+
+    // Estrae l'elenco delle fonti disponibili per i filtri
+    val availableSources = remember(newsList) {
+        listOf("Tutte") + newsList.map { it.sourceName }.distinct()
+    }
+
+    val filteredList = if (selectedSource == "Tutte") {
+        newsList
+    } else {
+        newsList.filter { it.sourceName == selectedSource }
     }
 
     Scaffold(
@@ -70,18 +96,45 @@ fun NewsFeedScreen(
             TopAppBar(title = { Text("Ultime Notizie", fontWeight = FontWeight.Bold) })
         }
     ) { padding ->
-        if (isLoading) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            
+            // Barra dei Filtri a scorrimento orizzontale
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(newsList) { news ->
-                    NewsCard(news = news, onClick = { onNewsClick(news) })
+                availableSources.forEach { source ->
+                    FilterChip(
+                        selected = selectedSource == source,
+                        onClick = { selectedSource = source },
+                        label = { Text(source) }
+                    )
+                }
+            }
+
+            // Contenitore con Swipe to Refresh
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { loadNews(true) },
+                modifier = Modifier.fillMaxSize()
+            ) {
+                if (isLoading) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(filteredList) { news ->
+                            NewsCard(news = news, onClick = { onNewsClick(news) })
+                        }
+                    }
                 }
             }
         }

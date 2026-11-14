@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class NewsRepository {
@@ -44,11 +45,14 @@ class NewsRepository {
                         imgUrl = descDoc.selectFirst("img")?.attr("abs:src")
                     }
 
+                    val (formattedDate, rawDateObj) = parseDate(pubDateRaw)
+
                     allNews.add(
                         NewsPreview(
                             id = link.hashCode().toString(),
                             title = title,
-                            publishedDate = formatRssDate(pubDateRaw),
+                            publishedDate = formattedDate,
+                            rawDate = rawDateObj,
                             imageUrl = imgUrl?.takeIf { it.isNotBlank() },
                             articleUrl = link,
                             sourceName = source
@@ -59,7 +63,9 @@ class NewsRepository {
                 e.printStackTrace()
             }
         }
-        allNews
+
+        // Ordina dalla più recente alla più vecchia
+        allNews.sortedByDescending { it.rawDate }
     }
 
     suspend fun fetchFullArticle(preview: NewsPreview): FullArticle = withContext(Dispatchers.IO) {
@@ -119,14 +125,23 @@ class NewsRepository {
         )
     }
 
-    private fun formatRssDate(rawDate: String): String {
-        return try {
-            val inputFormat = SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH)
-            val date = inputFormat.parse(rawDate)
-            val outputFormat = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.ITALIAN)
-            if (date != null) outputFormat.format(date) else rawDate
-        } catch (e: Exception) {
-            rawDate
+    private fun parseDate(rawDate: String): Pair<String, Date> {
+        val formats = listOf(
+            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.ENGLISH),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", Locale.ENGLISH),
+            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH)
+        )
+
+        for (format in formats) {
+            try {
+                format.isLenient = true
+                val date = format.parse(rawDate)
+                if (date != null) {
+                    val outputFormat = SimpleDateFormat("dd MMM yyyy • HH:mm", Locale.ITALIAN)
+                    return Pair(outputFormat.format(date), date)
+                }
+            } catch (_: Exception) {}
         }
+        return Pair(rawDate, Date(0))
     }
 }
