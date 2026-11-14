@@ -1,5 +1,6 @@
 package com.example.newsreader
 
+import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
@@ -8,9 +9,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class NewsRepository {
+class NewsRepository(context: Context) {
 
-    private val rssFeeds = listOf(
+    private val prefs = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
+
+    // Fonti predefinite iniziali (se l'utente non ne ha ancora aggiunte/rimosse)
+    private val defaultFeeds = mapOf(
         "ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
         "Il Post" to "https://www.ilpost.it/feed/",
         "Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
@@ -20,13 +24,36 @@ class NewsRepository {
         "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/primapagina.xml"
     )
 
+    fun getSavedFeeds(): Map<String, String> {
+        val saved = prefs.getStringSet("custom_feeds", null)
+        if (saved == null) {
+            saveFeeds(defaultFeeds)
+            return defaultFeeds
+        }
+        val map = LinkedHashMap<String, String>()
+        for (item in saved) {
+            val parts = item.split("|||")
+            if (parts.size == 2) {
+                map[parts[0]] = parts[1]
+            }
+        }
+        return map
+    }
+
+    fun saveFeeds(feeds: Map<String, String>) {
+        val set = feeds.map { "${it.key}|||${it.value}" }.toSet()
+        prefs.edit().putStringSet("custom_feeds", set).apply()
+    }
+
     suspend fun fetchNewsList(): List<NewsPreview> = withContext(Dispatchers.IO) {
         val allNews = mutableListOf<NewsPreview>()
+        val currentFeeds = getSavedFeeds()
 
-        for ((source, feedUrl) in rssFeeds) {
+        for ((source, feedUrl) in currentFeeds) {
             try {
                 val doc = Jsoup.connect(feedUrl)
-                    .userAgent("Mozilla/5.0")
+                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .timeout(8000)
                     .parser(Parser.xmlParser())
                     .get()
 
@@ -64,7 +91,6 @@ class NewsRepository {
             }
         }
 
-        // Ordina dalla più recente alla più vecchia
         allNews.sortedByDescending { it.rawDate }
     }
 
@@ -82,10 +108,14 @@ class NewsRepository {
                 heroImage = doc.selectFirst("meta[property=og:image]")?.attr("content")
             }
 
-            doc.select("script, style, nav, header, footer, aside, .ads, .related, .cookie").remove()
+            // Rimuove elementi indesiderati
+            doc.select("script, style, nav, header, footer, aside, .ads, .related, .cookie, .author-box").remove()
 
-            val articleContainer = doc.selectFirst("article")
-                ?: doc.selectFirst("[itemprop=articleBody]")
+            // Selettori mirati specifici per testate difficili (Repubblica, Sole 24 Ore, Corriere, ecc.)
+            val articleContainer = doc.selectFirst("div[itemprop=articleBody]")
+                ?: doc.selectFirst("article")
+                ?: doc.selectFirst(".article-body")
+                ?: doc.selectFirst(".entry-content")
                 ?: doc.selectFirst("main")
                 ?: doc.body()
 
@@ -97,14 +127,15 @@ class NewsRepository {
                 when (el.tagName()) {
                     "p", "h2", "h3" -> {
                         val text = el.text().trim()
-                        if (text.length > 35) {
+                        // Filtra frasi troppo corte o avvisi di cookie/newsletter
+                        if (text.length > 25 && !text.contains("Iscriviti alla newsletter") && !text.contains("Riproduzione riservata")) {
                             blocks.add(ArticleBlock.TextParagraph(text))
                         }
                     }
                     "img" -> {
                         val src = el.attr("abs:src").ifEmpty { el.attr("abs:data-src") }
                         if (src.isNotBlank() && src.startsWith("http") && !seenImages.contains(src)) {
-                            if (!src.contains("icon") && !src.contains("logo") && !src.contains("pixel")) {
+                            if (!src.contains("icon") && !src.contains("logo") && !src.contains("pixel") && !src.contains("avatar")) {
                                 seenImages.add(src)
                                 blocks.add(ArticleBlock.ImageBlock(src, el.attr("alt")))
                             }

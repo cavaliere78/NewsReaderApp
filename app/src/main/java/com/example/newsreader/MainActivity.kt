@@ -14,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,40 +30,55 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repository = NewsRepository()
+        val repository = NewsRepository(this)
 
         setContent {
             MaterialTheme {
-                var selectedNews by remember { mutableStateOf<NewsPreview?>(null) }
+                var currentScreen by remember { mutableStateOf<Screen>(Screen.Feed) }
 
-                if (selectedNews == null) {
-                    NewsFeedScreen(
-                        repository = repository,
-                        onNewsClick = { news -> selectedNews = news }
-                    )
-                } else {
-                    ArticleReaderScreen(
-                        preview = selectedNews!!,
-                        repository = repository,
-                        onBack = { selectedNews = null }
-                    )
+                when (val screen = currentScreen) {
+                    is Screen.Feed -> {
+                        NewsFeedScreen(
+                            repository = repository,
+                            onNewsClick = { news -> currentScreen = Screen.Reader(news) },
+                            onOpenSettings = { currentScreen = Screen.Settings }
+                        )
+                    }
+                    is Screen.Reader -> {
+                        ArticleReaderScreen(
+                            preview = screen.news,
+                            repository = repository,
+                            onBack = { currentScreen = Screen.Feed }
+                        )
+                    }
+                    is Screen.Settings -> {
+                        ManageSourcesScreen(
+                            repository = repository,
+                            onBack = { currentScreen = Screen.Feed }
+                        )
+                    }
                 }
             }
         }
     }
 }
 
+sealed class Screen {
+    object Feed : Screen()
+    data class Reader(val news: NewsPreview) : Screen()
+    object Settings : Screen()
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsFeedScreen(
     repository: NewsRepository,
-    onNewsClick: (NewsPreview) -> Unit
+    onNewsClick: (NewsPreview) -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
@@ -83,18 +101,25 @@ fun NewsFeedScreen(
     }
 
     val availableSources = remember(newsList) {
-        listOf("Tutte") + newsList.map { source -> source.sourceName }.distinct()
+        listOf("Tutte") + newsList.map { it.sourceName }.distinct()
     }
 
     val filteredList = if (selectedSource == "Tutte") {
         newsList
     } else {
-        newsList.filter { news -> news.sourceName == selectedSource }
+        newsList.filter { it.sourceName == selectedSource }
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Ultime Notizie", fontWeight = FontWeight.Bold) })
+            TopAppBar(
+                title = { Text("Ultime Notizie", fontWeight = FontWeight.Bold) },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Gestisci Fonti")
+                    }
+                }
+            )
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
@@ -136,6 +161,110 @@ fun NewsFeedScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ManageSourcesScreen(
+    repository: NewsRepository,
+    onBack: () -> Unit
+) {
+    var feeds by remember { mutableStateOf(repository.getSavedFeeds().toList()) }
+    var showAddDialog by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+    var newUrl by remember { mutableStateOf("") }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Gestisci Fonti RSS") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
+                    }
+                }
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showAddDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Aggiungi Fonte")
+            }
+        }
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(feeds) { (name, url) ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(text = name, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(text = url, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = {
+                            val mutableMap = feeds.toMap().toMutableMap()
+                            mutableMap.remove(name)
+                            repository.saveFeeds(mutableMap)
+                            feeds = mutableMap.toList()
+                        }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showAddDialog) {
+            AlertDialog(
+                onDismissRequest = { showAddDialog = false },
+                title = { Text("Aggiungi nuova testata") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = newName,
+                            onValueChange = { newName = it },
+                            label = { Text("Nome Testata (es. Ansa)") }
+                        )
+                        OutlinedTextField(
+                            value = newUrl,
+                            onValueChange = { newUrl = it },
+                            label = { Text("URL Feed RSS") }
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        if (newName.isNotBlank() && newUrl.isNotBlank()) {
+                            val mutableMap = feeds.toMap().toMutableMap()
+                            mutableMap[newName.trim()] = newUrl.trim()
+                            repository.saveFeeds(mutableMap)
+                            feeds = mutableMap.toList()
+                            newName = ""
+                            newUrl = ""
+                            showAddDialog = false
+                        }
+                    }) {
+                        Text("Aggiungi")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showAddDialog = false }) {
+                        Text("Annulla")
+                    }
+                }
+            )
         }
     }
 }
