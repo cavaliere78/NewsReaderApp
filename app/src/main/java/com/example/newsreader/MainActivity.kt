@@ -1,5 +1,6 @@
 package com.example.newsreader
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -16,8 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,8 +33,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -42,7 +43,6 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Feed) }
                 
-                // Lo stato vive qui: non viene perso quando apri/chiudi un articolo
                 var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
                 var isLoading by remember { mutableStateOf(true) }
                 var isRefreshing by remember { mutableStateOf(false) }
@@ -58,7 +58,6 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Viene eseguito UNA SOLA VOLTA all'apertura dell'app
                 LaunchedEffect(Unit) {
                     loadNews(false)
                 }
@@ -88,7 +87,6 @@ class MainActivity : ComponentActivity() {
                             repository = repository,
                             onBack = {
                                 currentScreen = Screen.Feed
-                                // Ricarica solo se hai modificato le fonti nelle impostazioni
                                 loadNews(true)
                             }
                         )
@@ -188,10 +186,13 @@ fun ManageSourcesScreen(
     repository: NewsRepository,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     var feeds by remember { mutableStateOf(repository.getSavedFeeds().toList()) }
-    var showAddDialog by remember { mutableStateOf(false) }
-    var newName by remember { mutableStateOf("") }
-    var newUrl by remember { mutableStateOf("") }
+    var showDialog by remember { mutableStateOf(false) }
+    
+    var editingOriginalName by remember { mutableStateOf<String?>(null) }
+    var inputName by remember { mutableStateOf("") }
+    var inputUrl by remember { mutableStateOf("") }
 
     Scaffold(
         topBar = {
@@ -201,11 +202,23 @@ fun ManageSourcesScreen(
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Indietro")
                     }
+                },
+                actions = {
+                    IconButton(onClick = {
+                        feeds = repository.resetDefaultFeeds().toList()
+                    }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Ripristina Predefinite")
+                    }
                 }
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = { showAddDialog = true }) {
+            FloatingActionButton(onClick = {
+                editingOriginalName = null
+                inputName = ""
+                inputUrl = ""
+                showDialog = true
+            }) {
                 Icon(Icons.Default.Add, contentDescription = "Aggiungi Fonte")
             }
         }
@@ -217,7 +230,14 @@ fun ManageSourcesScreen(
         ) {
             items(feeds) { (name, url) ->
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            editingOriginalName = name
+                            inputName = name
+                            inputUrl = url
+                            showDialog = true
+                        },
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Row(
@@ -234,6 +254,11 @@ fun ManageSourcesScreen(
                             val mutableMap = feeds.toMap().toMutableMap()
                             mutableMap.remove(name)
                             repository.saveFeeds(mutableMap)
+                            
+                            // Memorizza che l'utente ha cancellato volontariamente questa testata
+                            context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
+                                .edit().putBoolean("deleted_$name", true).apply()
+                                
                             feeds = mutableMap.toList()
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
@@ -243,41 +268,50 @@ fun ManageSourcesScreen(
             }
         }
 
-        if (showAddDialog) {
+        if (showDialog) {
+            val isEditing = editingOriginalName != null
             AlertDialog(
-                onDismissRequest = { showAddDialog = false },
-                title = { Text("Aggiungi nuova testata") },
+                onDismissRequest = { showDialog = false },
+                title = { Text(if (isEditing) "Modifica testata" else "Aggiungi nuova testata") },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(
-                            value = newName,
-                            onValueChange = { newName = it },
-                            label = { Text("Nome Testata (es. Ansa)") }
+                            value = inputName,
+                            onValueChange = { inputName = it },
+                            label = { Text("Nome Testata") }
                         )
                         OutlinedTextField(
-                            value = newUrl,
-                            onValueChange = { newUrl = it },
+                            value = inputUrl,
+                            onValueChange = { inputUrl = it },
                             label = { Text("URL Feed RSS") }
                         )
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = {
-                        if (newName.isNotBlank() && newUrl.isNotBlank()) {
+                        if (inputName.isNotBlank() && inputUrl.isNotBlank()) {
                             val mutableMap = feeds.toMap().toMutableMap()
-                            mutableMap[newName.trim()] = newUrl.trim()
+                            
+                            if (isEditing && editingOriginalName != null && editingOriginalName != inputName.trim()) {
+                                mutableMap.remove(editingOriginalName)
+                            }
+                            
+                            mutableMap[inputName.trim()] = inputUrl.trim()
                             repository.saveFeeds(mutableMap)
+                            
+                            // Se l'utente la rimette o la modifica, rimuoviamo il flag di eliminazione
+                            context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
+                                .edit().remove("deleted_$inputName").apply()
+
                             feeds = mutableMap.toList()
-                            newName = ""
-                            newUrl = ""
-                            showAddDialog = false
+                            showDialog = false
                         }
                     }) {
-                        Text("Aggiungi")
+                        Text(if (isEditing) "Salva" else "Aggiungi")
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAddDialog = false }) {
+                    TextButton(onClick = { showDialog = false }) {
                         Text("Annulla")
                     }
                 }

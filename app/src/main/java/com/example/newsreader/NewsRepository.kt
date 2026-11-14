@@ -34,7 +34,6 @@ class NewsRepository(context: Context) {
 		)
 
     fun getSavedFeeds(): Map<String, String> {
-        // Forza l'aggiornamento della lista unendo i default con eventuali personalizzazioni dell'utente
         val saved = prefs.getStringSet("custom_feeds", null)
         val savedMap = LinkedHashMap<String, String>()
 
@@ -47,18 +46,20 @@ class NewsRepository(context: Context) {
             }
         }
 
-        // Aggiunge automaticamente qualsiasi nuova fonte presente nei default se non è stata esplicitamente cancellata
+        // FORATURA INTELLIGENTE: Controlla se nel codice sono state aggiunte nuove testate 
+        // e le inserisce automaticamente, rispettando però quelle che l'utente ha eventualmente eliminato o modificato.
+        var updated = false
         for ((name, url) in defaultFeeds) {
-            if (!savedMap.containsKey(name) && prefs.getBoolean("removed_$name", false).not()) {
+            // Se la testata di default non è nei salvataggi e l'utente non l'ha esplicitamente cancellata
+            if (!savedMap.containsKey(name) && !prefs.getBoolean("deleted_$name", false)) {
                 savedMap[name] = url
+                updated = true
             }
         }
-        
-        // Assicura che le 16 fonti siano sempre presenti
-        for ((name, url) in defaultFeeds) {
-            if (!savedMap.containsKey(name)) {
-                savedMap[name] = url
-            }
+
+        // Se è la primissima volta o abbiamo aggiunto nuove fonti, salviamo subito la mappa aggiornata
+        if (saved == null || updated) {
+            saveFeeds(savedMap)
         }
 
         return savedMap
