@@ -2,6 +2,7 @@ package com.example.newsreader
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import org.jsoup.Jsoup
 import org.jsoup.parser.Parser
 import java.text.SimpleDateFormat
@@ -10,6 +11,7 @@ import java.util.*
 class NewsRepository(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
 
+    // Fonti predefinite con URL verificati e aggiornati
     val defaultFeeds = linkedMapOf(
         "ANSA" to "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
         "Corriere della Sera" to "https://xml.corriereobjects.it/rss/primapagina.xml",
@@ -17,7 +19,7 @@ class NewsRepository(context: Context) {
         "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/italia.xml",
         "Gazzetta dello Sport" to "https://www.gazzetta.it/rss/home.xml",
         "Corriere dello Sport" to "https://www.corrieredellosport.it/rss/",
-        "Il Mattino" to "https://www.ilmattino.it/rss/primapagina.xml",
+        "Il Mattino" to "https://www.ilmattino.it/rss/home.xml", // URL aggiornato e corretto
         "Il Post" to "https://www.ilpost.it/feed/",
         "Sky TG24" to "https://tg24.sky.it/rss/ultimora.xml",
         "Adnkronos" to "https://www.adnkronos.com/rss.xml",
@@ -77,16 +79,27 @@ class NewsRepository(context: Context) {
 
         for ((source, feedUrl) in currentFeeds) {
             try {
-                val doc = Jsoup.connect(feedUrl)
+                // Esecuzione avanzata con ignoranza del Content-Type per evitare rifiuti sui feed
+                val response = Jsoup.connect(feedUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
                     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
                     .header("Accept-Language", "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7")
                     .timeout(8000)
                     .followRedirects(true)
-                    .parser(Parser.xmlParser())
-                    .get()
+                    .ignoreContentType(true)
+                    .execute()
 
+                val bodyText = response.body()
+
+                // Se il server risponde con una pagina HTML (es. blocco Cloudflare) scartiamo la fonte e logghiamo l'errore
+                if (bodyText.trim().startsWith("<!DOCTYPE html") || bodyText.contains("<html")) {
+                    Log.e("NewsRepository", "Fonte $source bloccata o protetta da WAF/Anti-Bot (restituito HTML anziché XML)")
+                    continue
+                }
+
+                val doc = Parser.xmlParser().parseInput(bodyText, feedUrl)
                 val items = doc.select("item, entry")
+
                 for (item in items) {
                     val title = item.selectFirst("title")?.text()?.trim() ?: continue
                     
@@ -122,7 +135,7 @@ class NewsRepository(context: Context) {
                     )
                 }
             } catch (e: Exception) {
-                println("Errore feed $source: ${e.message}")
+                Log.e("NewsRepository", "Errore feed $source ($feedUrl): ${e.message}")
             }
         }
 
