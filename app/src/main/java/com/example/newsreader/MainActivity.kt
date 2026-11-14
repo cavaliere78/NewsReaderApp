@@ -27,6 +27,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,15 +82,14 @@ fun NewsFeedScreen(
         loadNews(false)
     }
 
-    // Estrae l'elenco delle fonti disponibili per i filtri
     val availableSources = remember(newsList) {
-        listOf("Tutte") + newsList.map { it.sourceName }.distinct()
+        listOf("Tutte") + newsList.map { source -> source.sourceName }.distinct()
     }
 
     val filteredList = if (selectedSource == "Tutte") {
         newsList
     } else {
-        newsList.filter { it.sourceName == selectedSource }
+        newsList.filter { news -> news.sourceName == selectedSource }
     }
 
     Scaffold(
@@ -98,7 +99,6 @@ fun NewsFeedScreen(
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
             
-            // Barra dei Filtri a scorrimento orizzontale
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -115,7 +115,6 @@ fun NewsFeedScreen(
                 }
             }
 
-            // Contenitore con Swipe to Refresh
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = { loadNews(true) },
