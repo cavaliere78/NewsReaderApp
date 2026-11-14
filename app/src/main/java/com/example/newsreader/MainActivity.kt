@@ -41,11 +41,37 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Feed) }
+                
+                // Lo stato vive qui: non viene perso quando apri/chiudi un articolo
+                var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
+                var isLoading by remember { mutableStateOf(true) }
+                var isRefreshing by remember { mutableStateOf(false) }
+                var selectedSource by remember { mutableStateOf("Tutte") }
+                val coroutineScope = rememberCoroutineScope()
+
+                val loadNews: (Boolean) -> Unit = { refreshing ->
+                    if (refreshing) isRefreshing = true else isLoading = true
+                    coroutineScope.launch {
+                        newsList = repository.fetchNewsList()
+                        isLoading = false
+                        isRefreshing = false
+                    }
+                }
+
+                // Viene eseguito UNA SOLA VOLTA all'apertura dell'app
+                LaunchedEffect(Unit) {
+                    loadNews(false)
+                }
 
                 when (val screen = currentScreen) {
                     is Screen.Feed -> {
                         NewsFeedScreen(
-                            repository = repository,
+                            newsList = newsList,
+                            isLoading = isLoading,
+                            isRefreshing = isRefreshing,
+                            selectedSource = selectedSource,
+                            onSelectSource = { selectedSource = it },
+                            onRefresh = { loadNews(true) },
                             onNewsClick = { news -> currentScreen = Screen.Reader(news) },
                             onOpenSettings = { currentScreen = Screen.Settings }
                         )
@@ -60,7 +86,11 @@ class MainActivity : ComponentActivity() {
                     is Screen.Settings -> {
                         ManageSourcesScreen(
                             repository = repository,
-                            onBack = { currentScreen = Screen.Feed }
+                            onBack = {
+                                currentScreen = Screen.Feed
+                                // Ricarica solo se hai modificato le fonti nelle impostazioni
+                                loadNews(true)
+                            }
                         )
                     }
                 }
@@ -78,30 +108,15 @@ sealed class Screen {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewsFeedScreen(
-    repository: NewsRepository,
+    newsList: List<NewsPreview>,
+    isLoading: Boolean,
+    isRefreshing: Boolean,
+    selectedSource: String,
+    onSelectSource: (String) -> Unit,
+    onRefresh: () -> Unit,
     onNewsClick: (NewsPreview) -> Unit,
     onOpenSettings: () -> Unit
 ) {
-    var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var isRefreshing by remember { mutableStateOf(false) }
-    var selectedSource by remember { mutableStateOf("Tutte") }
-    
-    val coroutineScope = rememberCoroutineScope()
-
-    val loadNews: (Boolean) -> Unit = { refreshing ->
-        if (refreshing) isRefreshing = true else isLoading = true
-        coroutineScope.launch {
-            newsList = repository.fetchNewsList()
-            isLoading = false
-            isRefreshing = false
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        loadNews(false)
-    }
-
     val availableSources = remember(newsList) {
         listOf("Tutte") + newsList.map { it.sourceName }.distinct()
     }
@@ -136,7 +151,7 @@ fun NewsFeedScreen(
                 availableSources.forEach { source ->
                     FilterChip(
                         selected = selectedSource == source,
-                        onClick = { selectedSource = source },
+                        onClick = { onSelectSource(source) },
                         label = { Text(source) }
                     )
                 }
@@ -144,7 +159,7 @@ fun NewsFeedScreen(
 
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
-                onRefresh = { loadNews(true) },
+                onRefresh = onRefresh,
                 modifier = Modifier.fillMaxSize()
             ) {
                 if (isLoading) {
