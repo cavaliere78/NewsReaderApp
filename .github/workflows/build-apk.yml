@@ -22,11 +22,13 @@ jobs:
       - name: Accetta licenze Android SDK
         run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
-      - name: Genera Gradle Wrapper e Compila APK Debug
+      - name: Configura Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-          arguments: assembleDebug
+
+      - name: Compila APK Debug
+        run: gradle assembleDebug
 
       - name: Carica APK compilato
         uses: actions/upload-artifact@v4
