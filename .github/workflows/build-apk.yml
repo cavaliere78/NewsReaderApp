@@ -19,8 +19,8 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Configura Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accetta licenze Android SDK
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
 
       - name: Genera Gradle Wrapper e Compila APK Debug
         uses: gradle/actions/setup-gradle@v4
