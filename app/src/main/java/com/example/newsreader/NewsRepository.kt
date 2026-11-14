@@ -34,34 +34,31 @@ class NewsRepository(context: Context) {
 		)
 
     fun getSavedFeeds(): Map<String, String> {
+        // Forza l'aggiornamento della lista unendo i default con eventuali personalizzazioni dell'utente
         val saved = prefs.getStringSet("custom_feeds", null)
-        
-        // Se è la prima installazione, salva direttamente tutte le predefinite
-        if (saved == null) {
-            saveFeeds(defaultFeeds)
-            return defaultFeeds
-        }
-
         val savedMap = LinkedHashMap<String, String>()
-        for (item in saved) {
-            val parts = item.split("|||")
-            if (parts.size == 2) {
-                savedMap[parts[0]] = parts[1]
+
+        if (saved != null) {
+            for (item in saved) {
+                val parts = item.split("|||")
+                if (parts.size == 2) {
+                    savedMap[parts[0]] = parts[1]
+                }
             }
         }
 
-        // CONTROLLO AUTOMATICO: Se nel codice abbiamo aggiunto nuove fonti che non sono ancora nei salvataggi, le integriamo
-        var hasChanges = false
+        // Aggiunge automaticamente qualsiasi nuova fonte presente nei default se non è stata esplicitamente cancellata
         for ((name, url) in defaultFeeds) {
-            if (!savedMap.containsKey(name) && !prefs.getBoolean("removed_$name", false)) {
+            if (!savedMap.containsKey(name) && prefs.getBoolean("removed_$name", false).not()) {
                 savedMap[name] = url
-                hasChanges = true
             }
         }
-
-        // Se abbiamo trovato nuove fonti nel codice, aggiorniamo la memoria locale
-        if (hasChanges) {
-            saveFeeds(savedMap)
+        
+        // Assicura che le 16 fonti siano sempre presenti
+        for ((name, url) in defaultFeeds) {
+            if (!savedMap.containsKey(name)) {
+                savedMap[name] = url
+            }
         }
 
         return savedMap
@@ -80,7 +77,7 @@ class NewsRepository(context: Context) {
             try {
                 val doc = Jsoup.connect(feedUrl)
                     .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                    .timeout(8000)
+                    .timeout(5000)
                     .parser(Parser.xmlParser())
                     .get()
 
@@ -114,7 +111,8 @@ class NewsRepository(context: Context) {
                     )
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                // Se una testata fallisce (es. blocco anti-bot o URL errato), stampa l'errore ma CONTINUA con le altre
+                println("Errore caricamento feed $source: ${e.message}")
             }
         }
 
