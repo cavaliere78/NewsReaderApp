@@ -201,4 +201,17 @@ class NewsRepository(context: Context) {
         }
         return Pair(rawDate, Date(0))
     }
+	fun resetDefaultFeeds(): Map<String, String> {
+        // Pulisce eventuali flag di eliminazione salvati dall'utente
+        val editor = prefs.edit()
+        for (name in defaultFeeds.keys) {
+            editor.remove("deleted_$name")
+        }
+        editor.remove("custom_feeds")
+        editor.apply()
+
+        // Salva e restituisce i feed predefiniti puliti
+        saveFeeds(defaultFeeds)
+        return defaultFeeds
+    }
 }
