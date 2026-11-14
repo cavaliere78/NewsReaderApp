@@ -13,17 +13,21 @@ class NewsRepository(context: Context) {
 
     // Fonti predefinite con URL verificati e aggiornati
     val defaultFeeds = linkedMapOf(
-        "ANSA" to "https://www.ansa.it/sito/notizie/mondo/mondo_rss.xml",
+        "ANSA" to "https://www.ansa.it/sito/ansait_rss.xml",
         "Corriere della Sera" to "https://xml.corriereobjects.it/rss/primapagina.xml",
         "la Repubblica" to "https://www.repubblica.it/rss/homepage/rss2.0.xml",
         "Il Sole 24 Ore" to "https://www.ilsole24ore.com/rss/italia.xml",
+        "Il Mattino" to "https://www.ilmattino.it/rss/home.xml",
+        "Il Roma" to "https://www.ilroma.net/rss.jsp?sezione=930",
+        "Il Messaggero" to "https://www.ilmessaggero.it/rss/home.xml",
+        "La Stampa" to "https://www.lastampa.it/rss/copertina.xml",
+        "Il Fatto Quotidiano" to "https://www.ilfattoquotidiano.it/feed/",
+        "Il Post" to "https://www.ilpost.it/feed",
+        "Sky TG24" to "https://tg24.sky.it/rss/tg24.xml",
+        "Adnkronos" to "https://www.adnkronos.com/rss.xml",
         "Gazzetta dello Sport" to "https://www.gazzetta.it/rss/home.xml",
         "Corriere dello Sport" to "https://www.corrieredellosport.it/rss/",
-        "Il Mattino" to "https://www.ilmattino.it/rss/home.xml", // URL aggiornato e corretto
-        "Il Post" to "https://www.ilpost.it/feed/",
-        "Sky TG24" to "https://tg24.sky.it/rss/ultimora.xml",
-        "Adnkronos" to "https://www.adnkronos.com/rss.xml",
-        "Il Roma" to "https://www.ilroma.net/sezioni/268/rss"
+        "Wired Italia" to "https://www.wired.it/feed/rss"
     )
 
     fun getSavedFeeds(): Map<String, String> {

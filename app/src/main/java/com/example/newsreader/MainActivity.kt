@@ -33,6 +33,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Upload
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -189,10 +194,46 @@ fun ManageSourcesScreen(
     val context = LocalContext.current
     var feeds by remember { mutableStateOf(repository.getSavedFeeds().toList()) }
     var showDialog by remember { mutableStateOf(false) }
-    
+
     var editingOriginalName by remember { mutableStateOf<String?>(null) }
     var inputName by remember { mutableStateOf("") }
     var inputUrl by remember { mutableStateOf("") }
+
+    // Launcher per ESPORTARE il file JSON
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let {
+            try {
+                val jsonContent = repository.exportFeedsToJson()
+                context.contentResolver.openOutputStream(it)?.use { outputStream ->
+                    outputStream.write(jsonContent.toByteArray(Charsets.UTF_8))
+                }
+                Toast.makeText(context, "Lista esportata con successo!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Errore esportazione: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Launcher per IMPORTARE il file JSON
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let {
+            try {
+                val jsonContent = context.contentResolver.openInputStream(it)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                    reader.readText()
+                }
+                if (!jsonContent.isNullOrBlank()) {
+                    feeds = repository.importFeedsFromJson(jsonContent).toList()
+                    Toast.makeText(context, "Lista importata (${feeds.size} fonti)!", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "File non valido o errore lettura: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -204,8 +245,18 @@ fun ManageSourcesScreen(
                     }
                 },
                 actions = {
+                    // Pulsante Esporta
+                    IconButton(onClick = { exportLauncher.launch("fonti_rss_backup.json") }) {
+                        Icon(Icons.Default.Share, contentDescription = "Esporta su file")
+                    }
+                    // Pulsante Importa
+                    IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) {
+                        Icon(Icons.Default.AddCircle, contentDescription = "Importa da file")
+                    }
+                    // Pulsante Ripristina Predefinite
                     IconButton(onClick = {
                         feeds = repository.resetDefaultFeeds().toList()
+                        Toast.makeText(context, "Fonti predefinite ripristinate", Toast.LENGTH_SHORT).show()
                     }) {
                         Icon(Icons.Default.Refresh, contentDescription = "Ripristina Predefinite")
                     }
@@ -254,11 +305,10 @@ fun ManageSourcesScreen(
                             val mutableMap = feeds.toMap().toMutableMap()
                             mutableMap.remove(name)
                             repository.saveFeeds(mutableMap)
-                            
-                            // Memorizza che l'utente ha cancellato volontariamente questa testata
+
                             context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
                                 .edit().putBoolean("deleted_$name", true).apply()
-                                
+
                             feeds = mutableMap.toList()
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = MaterialTheme.colorScheme.error)
@@ -291,17 +341,16 @@ fun ManageSourcesScreen(
                     TextButton(onClick = {
                         if (inputName.isNotBlank() && inputUrl.isNotBlank()) {
                             val mutableMap = feeds.toMap().toMutableMap()
-                            
+
                             if (isEditing && editingOriginalName != null && editingOriginalName != inputName.trim()) {
                                 mutableMap.remove(editingOriginalName)
                             }
-                            
+
                             mutableMap[inputName.trim()] = inputUrl.trim()
                             repository.saveFeeds(mutableMap)
-                            
-                            // Se l'utente la rimette o la modifica, rimuoviamo il flag di eliminazione
+
                             context.getSharedPreferences("news_prefs", Context.MODE_PRIVATE)
-                                .edit().remove("deleted_$inputName").apply()
+                                .edit().remove("deleted_${inputName.trim()}").apply()
 
                             feeds = mutableMap.toList()
                             showDialog = false
