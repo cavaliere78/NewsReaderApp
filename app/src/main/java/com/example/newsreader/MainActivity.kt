@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,7 +14,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,7 +42,6 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.launch
 
-
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,12 +50,13 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 var currentScreen by remember { mutableStateOf<Screen>(Screen.Feed) }
-                
+
                 var newsList by remember { mutableStateOf<List<NewsPreview>>(emptyList()) }
                 var isLoading by remember { mutableStateOf(true) }
                 var isRefreshing by remember { mutableStateOf(false) }
                 var selectedSource by remember { mutableStateOf("Tutte") }
                 val coroutineScope = rememberCoroutineScope()
+                val feedListState = rememberLazyListState()
 
                 val loadNews: (Boolean) -> Unit = { refreshing ->
                     if (refreshing) isRefreshing = true else isLoading = true
@@ -61,6 +64,9 @@ class MainActivity : ComponentActivity() {
                         newsList = repository.fetchNewsList()
                         isLoading = false
                         isRefreshing = false
+                        if (refreshing) {
+                            feedListState.scrollToItem(0)
+                        }
                     }
                 }
 
@@ -75,13 +81,18 @@ class MainActivity : ComponentActivity() {
                             isLoading = isLoading,
                             isRefreshing = isRefreshing,
                             selectedSource = selectedSource,
-                            onSelectSource = { selectedSource = it },
+                            listState = feedListState,
+                            onSelectSource = { newSource ->
+                                selectedSource = newSource
+                                coroutineScope.launch { feedListState.scrollToItem(0) }
+                            },
                             onRefresh = { loadNews(true) },
                             onNewsClick = { news -> currentScreen = Screen.Reader(news) },
                             onOpenSettings = { currentScreen = Screen.Settings }
                         )
                     }
                     is Screen.Reader -> {
+                        BackHandler { currentScreen = Screen.Feed }
                         ArticleReaderScreen(
                             preview = screen.news,
                             repository = repository,
@@ -89,6 +100,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     is Screen.Settings -> {
+                        BackHandler {
+                            currentScreen = Screen.Feed
+                            loadNews(true)
+                        }
                         ManageSourcesScreen(
                             repository = repository,
                             onBack = {
@@ -116,6 +131,7 @@ fun NewsFeedScreen(
     isLoading: Boolean,
     isRefreshing: Boolean,
     selectedSource: String,
+    listState: LazyListState,
     onSelectSource: (String) -> Unit,
     onRefresh: () -> Unit,
     onNewsClick: (NewsPreview) -> Unit,
@@ -144,7 +160,7 @@ fun NewsFeedScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -172,11 +188,12 @@ fun NewsFeedScreen(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(filteredList) { news ->
+                        items(filteredList, key = { it.id }) { news ->
                             NewsCard(news = news, onClick = { onNewsClick(news) })
                         }
                     }
@@ -200,7 +217,6 @@ fun ManageSourcesScreen(
     var inputName by remember { mutableStateOf("") }
     var inputUrl by remember { mutableStateOf("") }
 
-    // Launcher per ESPORTARE il file JSON
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -217,7 +233,6 @@ fun ManageSourcesScreen(
         }
     }
 
-    // Launcher per IMPORTARE il file JSON
     val importLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -246,15 +261,12 @@ fun ManageSourcesScreen(
                     }
                 },
                 actions = {
-                    // Pulsante Esporta
                     IconButton(onClick = { exportLauncher.launch("fonti_rss_backup.json") }) {
                         Icon(Icons.Default.Share, contentDescription = "Esporta su file")
                     }
-                    // Pulsante Importa
                     IconButton(onClick = { importLauncher.launch(arrayOf("application/json", "*/*")) }) {
                         Icon(Icons.Default.AddCircle, contentDescription = "Importa da file")
                     }
-                    // Pulsante Ripristina Predefinite
                     IconButton(onClick = {
                         feeds = repository.resetDefaultFeeds().toList()
                         Toast.makeText(context, "Fonti predefinite ripristinate", Toast.LENGTH_SHORT).show()
