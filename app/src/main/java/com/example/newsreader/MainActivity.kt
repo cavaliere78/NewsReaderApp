@@ -74,43 +74,54 @@ class MainActivity : ComponentActivity() {
                     loadNews(false)
                 }
 
-                when (val screen = currentScreen) {
-                    is Screen.Feed -> {
-                        NewsFeedScreen(
-                            newsList = newsList,
-                            isLoading = isLoading,
-                            isRefreshing = isRefreshing,
-                            selectedSource = selectedSource,
-                            listState = feedListState,
-                            onSelectSource = { newSource ->
-                                selectedSource = newSource
-                                coroutineScope.launch { feedListState.scrollToItem(0) }
-                            },
-                            onRefresh = { loadNews(true) },
-                            onNewsClick = { news -> currentScreen = Screen.Reader(news) },
-                            onOpenSettings = { currentScreen = Screen.Settings }
-                        )
-                    }
-                    is Screen.Reader -> {
-                        BackHandler { currentScreen = Screen.Feed }
-                        ArticleReaderScreen(
-                            preview = screen.news,
-                            repository = repository,
-                            onBack = { currentScreen = Screen.Feed }
-                        )
-                    }
-                    is Screen.Settings -> {
-                        BackHandler {
-                            currentScreen = Screen.Feed
-                            loadNews(true)
+                // Utilizziamo un Box per mantenere NewsFeedScreen sempre montato in background.
+                // In questo modo, quando si apre un articolo o le impostazioni e si torna indietro,
+                // la posizione di scorrimento della lista e le immagini in cache non vengono mai distrutte.
+                Box(modifier = Modifier.fillMaxSize()) {
+                    NewsFeedScreen(
+                        newsList = newsList,
+                        isLoading = isLoading,
+                        isRefreshing = isRefreshing,
+                        selectedSource = selectedSource,
+                        listState = feedListState,
+                        onSelectSource = { newSource ->
+                            selectedSource = newSource
+                            coroutineScope.launch { feedListState.scrollToItem(0) }
+                        },
+                        onRefresh = { loadNews(true) },
+                        onNewsClick = { news -> currentScreen = Screen.Reader(news) },
+                        onOpenSettings = { currentScreen = Screen.Settings }
+                    )
+
+                    when (val screen = currentScreen) {
+                        is Screen.Feed -> {
+                            // La feed è già visibile sotto
                         }
-                        ManageSourcesScreen(
-                            repository = repository,
-                            onBack = {
+                        is Screen.Reader -> {
+                            BackHandler { currentScreen = Screen.Feed }
+                            Surface(modifier = Modifier.fillMaxSize()) {
+                                ArticleReaderScreen(
+                                    preview = screen.news,
+                                    repository = repository,
+                                    onBack = { currentScreen = Screen.Feed }
+                                )
+                            }
+                        }
+                        is Screen.Settings -> {
+                            BackHandler {
                                 currentScreen = Screen.Feed
                                 loadNews(true)
                             }
-                        )
+                            Surface(modifier = Modifier.fillMaxSize()) {
+                                ManageSourcesScreen(
+                                    repository = repository,
+                                    onBack = {
+                                        currentScreen = Screen.Feed
+                                        loadNews(true)
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -193,7 +204,10 @@ fun NewsFeedScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        items(filteredList, key = { it.id }) { news ->
+                        items(
+                            items = filteredList,
+                            key = { "${it.sourceName}_${it.articleUrl}" }
+                        ) { news ->
                             NewsCard(news = news, onClick = { onNewsClick(news) })
                         }
                     }
